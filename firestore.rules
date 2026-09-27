@@ -1,0 +1,40 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // 1. Remote Browser Isolation (RBI) Sessions & WebRTC Signaling
+    match /rbi_sessions/{sessionId} {
+      // Allow user to create session document if their auth.uid matches the document uid field
+      allow create: if request.auth != null && request.resource.data.uid == request.auth.uid;
+      
+      // Allow read, update, delete ONLY if the document belongs to the requesting user
+      allow read, update, delete: if request.auth != null && resource.data.uid == request.auth.uid;
+
+      // WebRTC signaling subcollection (offers, answers, ice_candidates)
+      match /signaling/{candidateId} {
+        allow read, write: if request.auth != null && 
+          get(/databases/$(database)/documents/rbi_sessions/$(sessionId)).data.uid == request.auth.uid;
+      }
+    }
+
+    // 2. User Profiles & Workspace Session storage
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+      
+      match /{document=**} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+    }
+
+    // 3. Admin Configurations (Strictly protected from anonymous users)
+    match /admin_config/{document=**} {
+      allow read: if request.auth != null && request.auth.token.admin == true;
+      allow write: if false; // Only Firebase Admin SDK can modify
+    }
+
+    // Default deny for unassigned collections
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

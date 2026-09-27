@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base href="$FLUTTER_BASE_HREF">
+
+  <meta charset="UTF-8">
+  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+  <meta name="description" content="WebOS Virtual Desktop with Wisp/Bare in-browser proxy engine.">
+
+  <!-- iOS meta tags & icons -->
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="WebOS">
+  <link rel="apple-touch-icon" href="icons/Icon-192.png">
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" href="favicon.png"/>
+
+  <title>WebOS Workspace</title>
+  <link rel="manifest" href="manifest.json">
+
+  <!-- Ultraviolet Proxy Client Bundle & Config -->
+  <script src="uv/uv.bundle.js"></script>
+  <script src="uv/uv.config.js"></script>
+  <script src="baremux/index.js"></script>
+</head>
+<body>
+  <!-- WebOS Ultraviolet Service Worker Registration & Wisp/Bare Bridge -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', async function() {
+        try {
+          const reg = await navigator.serviceWorker.register('uv/sw.js', {
+            scope: (window.__uv$config && window.__uv$config.prefix) ? window.__uv$config.prefix : '/uv/service/'
+          });
+          console.log('[WebOS UV] Service Worker registered with scope:', reg.scope);
+          window._uvSWRegistration = reg;
+        } catch (error) {
+          console.warn('[WebOS UV] Service Worker registration failed:', error);
+        }
+      });
+    }
+
+    // Asynchronous BareMux transport configurator
+    async function configureBareMux(wispUrl, bareUrl) {
+      try {
+        if (!window.BareMux) return;
+        const connection = new BareMux.BareMuxConnection("/baremux/worker.js");
+        const targetWisp = wispUrl || ((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/wisp/');
+        console.log('[WebOS Proxy] Setting BareMux transport to Epoxy with Wisp:', targetWisp);
+        await connection.setTransport("/epoxy/index.mjs", [{ wisp: targetWisp }]);
+        console.log('[WebOS Proxy] BareMux transport configured successfully with Epoxy/Wisp!');
+        window._bareMuxReady = true;
+      } catch (err) {
+        console.warn('[WebOS Proxy] Epoxy transport failed, trying BareMod fallback:', err);
+        try {
+          const connection = new BareMux.BareMuxConnection("/baremux/worker.js");
+          await connection.setTransport("/baremod/index.mjs", [bareUrl || '/bare/']);
+          console.log('[WebOS Proxy] BareMux connected via BareMod fallback');
+          window._bareMuxReady = true;
+        } catch (e2) {
+          console.error('[WebOS Proxy] All transports failed:', e2);
+        }
+      }
+    }
+
+    // Auto-initialize as early as possible
+    if (typeof window !== 'undefined') {
+      window.addEventListener('DOMContentLoaded', () => configureBareMux());
+      window.addEventListener('load', () => configureBareMux());
+      configureBareMux();
+    }
+
+    // Helper exposed to Flutter to configure Wisp / Bare endpoint dynamically
+    window.initWebOSProxy = async function(wispUrl, bareUrl) {
+      await configureBareMux(wispUrl, bareUrl);
+    };
+
+    // Helper exposed to Flutter to encode target URL with Ultraviolet XOR codec
+    window.encodeUVUrl = function(url) {
+      try {
+        if (window.__uv$config && window.__uv$config.encodeUrl) {
+          const encoded = window.__uv$config.encodeUrl(url);
+          return window.__uv$config.prefix + encoded;
+        }
+      } catch (e) {
+        console.warn('[WebOS UV] Encoding fallback:', e);
+      }
+      return '/uv/service/' + encodeURIComponent(url);
+    };
+  </script>
+  <script src="flutter_bootstrap.js" async></script>
+</body>
+</html>
