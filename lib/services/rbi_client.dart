@@ -6,6 +6,8 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 import '../config/env_config.dart';
 import 'auth_service.dart';
 
+import 'package:web/web.dart' as web;
+
 enum RbiConnectionState {
   disconnected,
   authenticating,
@@ -19,8 +21,23 @@ class RbiClient extends ChangeNotifier {
   static final RbiClient instance = RbiClient._internal();
   RbiClient._internal();
 
-  String _gatewayWsUrl = EnvConfig.wispWsUrl;
-  String get gatewayWsUrl => _gatewayWsUrl;
+  String _determineWsUrl() {
+    if (kIsWeb) {
+      try {
+        final host = web.window.location.host;
+        final isLocal = host.contains('localhost') || host.contains('127.0.0.1');
+        if (!isLocal) {
+          final proto = web.window.location.protocol == 'https:' ? 'wss:' : 'ws:';
+          return '$proto//$host/rbi/';
+        }
+      } catch (_) {}
+    }
+    final wisp = EnvConfig.wispWsUrl;
+    return wisp.replaceAll('/wisp/', '/rbi/').replaceAll('/wisp', '/rbi/');
+  }
+
+  String _gatewayWsUrl = '';
+  String get gatewayWsUrl => _gatewayWsUrl.isNotEmpty ? _gatewayWsUrl : _determineWsUrl();
 
   RbiConnectionState _state = RbiConnectionState.disconnected;
   RbiConnectionState get state => _state;
@@ -249,6 +266,34 @@ class RbiClient extends ChangeNotifier {
     _currentUrl = url;
     sendInput({'type': 'goto', 'url': url});
     notifyListeners();
+  }
+
+  void sendMouseMove(double x, double y) {
+    sendInput({'type': 'mousemove', 'x': x, 'y': y});
+  }
+
+  void sendMouseDown(double x, double y, {String button = 'left'}) {
+    sendInput({'type': 'mousedown', 'x': x, 'y': y, 'button': button});
+  }
+
+  void sendMouseUp(double x, double y, {String button = 'left'}) {
+    sendInput({'type': 'mouseup', 'x': x, 'y': y, 'button': button});
+  }
+
+  void sendClick(double x, double y, {String button = 'left'}) {
+    sendInput({'type': 'click', 'x': x, 'y': y, 'button': button});
+  }
+
+  void sendWheel(double dx, double dy) {
+    sendInput({'type': 'wheel', 'deltaX': dx, 'deltaY': dy});
+  }
+
+  void sendKeyDown(String key) {
+    sendInput({'type': 'keydown', 'key': key});
+  }
+
+  void sendKeyUp(String key) {
+    sendInput({'type': 'keyup', 'key': key});
   }
 
   void _setState(RbiConnectionState newState) {

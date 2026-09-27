@@ -2,6 +2,8 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../config/env_config.dart';
 
+import 'package:web/web.dart' as web;
+
 // ignore: avoid_web_libraries_in_flutter
 import 'dart:js_interop';
 
@@ -30,8 +32,28 @@ class ProxyEngine extends ChangeNotifier {
   int get latencyMs => _latencyMs;
 
   void initialize() {
+    _detectEnvironment();
     _syncWithClient();
     checkHealth();
+  }
+
+  void _detectEnvironment() {
+    if (kIsWeb) {
+      try {
+        final host = web.window.location.host;
+        final protocol = web.window.location.protocol;
+        final isLocal = host.contains('localhost') || host.contains('127.0.0.1');
+        
+        if (!isLocal && _wispUrl.contains('localhost')) {
+          final wsProto = protocol == 'https:' ? 'wss:' : 'ws:';
+          _wispUrl = '$wsProto//$host/wisp/';
+          _httpBaseUrl = '$protocol//$host';
+          _bareUrl = '$_httpBaseUrl/bare/';
+        }
+      } catch (e) {
+        debugPrint('[ProxyEngine] Notice auto-detecting host: $e');
+      }
+    }
   }
 
   void updateEndpoint(String newProxyUrl) {

@@ -1,4 +1,10 @@
-const puppeteer = require('puppeteer');
+let puppeteer;
+try {
+  puppeteer = require('puppeteer-core');
+} catch (_) {
+  puppeteer = require('puppeteer');
+}
+const fs = require('fs');
 const admin = require('firebase-admin');
 const { RTCPeerConnection } = require('werift');
 
@@ -61,8 +67,25 @@ class RbiSession {
   async init() {
     console.log(`[RBI] Spawning isolated browser session for UID: ${this.uid}`);
 
+    let executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
+    if (!executablePath) {
+      if (process.platform === 'win32') {
+        const winChrome = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
+        if (fs.existsSync(winChrome)) executablePath = winChrome;
+      } else {
+        const linuxPaths = ['/usr/bin/chromium', '/usr/bin/chromium-browser', '/usr/bin/google-chrome'];
+        for (const p of linuxPaths) {
+          if (fs.existsSync(p)) {
+            executablePath = p;
+            break;
+          }
+        }
+      }
+    }
+
     this.browser = await puppeteer.launch({
       headless: 'new',
+      executablePath,
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',

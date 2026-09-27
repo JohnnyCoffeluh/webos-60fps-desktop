@@ -26,18 +26,26 @@ class WindowFrame extends StatelessWidget {
     final wm = WindowManager.instance;
     final isActive = wm.activeWindowId == window.id;
     final screenSize = MediaQuery.of(context).size;
+    final isCompact = screenSize.width < 900;
+
+    final left = (window.isMaximized || isCompact) ? 0.0 : window.position.dx.clamp(0.0, (screenSize.width - 100.0).clamp(0.0, screenSize.width));
+    final top = (window.isMaximized || isCompact) ? 0.0 : window.position.dy.clamp(0.0, (screenSize.height - 100.0).clamp(0.0, screenSize.height));
+    final width = (window.isMaximized || isCompact) ? screenSize.width : window.size.width.clamp(320.0, screenSize.width);
+    final height = (window.isMaximized || isCompact)
+        ? (screenSize.height - 48.0)
+        : window.size.height.clamp(200.0, screenSize.height - 48.0);
 
     return Positioned(
-      left: window.position.dx,
-      top: window.position.dy,
-      width: window.size.width,
-      height: window.size.height,
+      left: left,
+      top: top,
+      width: width,
+      height: height,
       child: GestureDetector(
         onTapDown: (_) => wm.focusWindow(window.id),
         child: Container(
           decoration: BoxDecoration(
             color: const Color(0xFF0F172A),
-            borderRadius: BorderRadius.circular(window.isMaximized ? 0 : 12),
+            borderRadius: BorderRadius.circular((window.isMaximized || isCompact) ? 0 : 12),
             border: Border.all(
               color: isActive ? WebOSTheme.primary.withValues(alpha: 0.6) : const Color(0x33334155),
               width: isActive ? 1.5 : 1.0,
@@ -69,8 +77,8 @@ class WindowFrame extends StatelessWidget {
                   ],
                 ),
 
-                // Resize Handles (only active when not maximized)
-                if (!window.isMaximized) ..._buildResizeHandles(wm),
+                // Resize Handles (only active when not maximized and not compact)
+                if (!window.isMaximized && !isCompact) ..._buildResizeHandles(wm),
               ],
             ),
           ),
@@ -80,8 +88,9 @@ class WindowFrame extends StatelessWidget {
   }
 
   Widget _buildTitleBar(BuildContext context, WindowManager wm, bool isActive, Size screenSize) {
+    final isCompact = screenSize.width < 900;
     return GestureDetector(
-      onPanUpdate: (details) => wm.updatePosition(window.id, details.delta),
+      onPanUpdate: isCompact ? null : (details) => wm.updatePosition(window.id, details.delta),
       onDoubleTap: () => wm.toggleMaximizeWindow(window.id, screenSize),
       child: Container(
         height: 38,

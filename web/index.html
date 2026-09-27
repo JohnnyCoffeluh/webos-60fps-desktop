@@ -46,7 +46,8 @@
       try {
         if (!window.BareMux) return;
         const connection = new BareMux.BareMuxConnection("/baremux/worker.js");
-        const targetWisp = wispUrl || ((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/wisp/');
+        const rawWisp = wispUrl || ((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/wisp/');
+        const targetWisp = rawWisp.endsWith('/') ? rawWisp : (rawWisp + '/');
         console.log('[WebOS Proxy] Setting BareMux transport to Epoxy with Wisp:', targetWisp);
         await connection.setTransport("/epoxy/index.mjs", [{ wisp: targetWisp }]);
         console.log('[WebOS Proxy] BareMux transport configured successfully with Epoxy/Wisp!');

@@ -1,12 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import '../../services/proxy_engine.dart';
 import '../../services/auth_service.dart';
+import '../../services/rbi_client.dart';
 import '../../theme/webos_theme.dart';
 
 // ignore: avoid_web_libraries_in_flutter
 import 'dart:ui_web' as ui_web;
 import 'package:web/web.dart' as web;
+
+enum EngineMode {
+  nativeProxy,
+  cloudBrowser,
+}
 
 class RbiBrowserApp extends StatefulWidget {
   const RbiBrowserApp({super.key});
@@ -19,6 +26,7 @@ class _RbiBrowserAppState extends State<RbiBrowserApp> {
   final TextEditingController _urlController = TextEditingController(text: 'https://news.ycombinator.com');
   String _currentDestination = 'https://news.ycombinator.com';
   late String _iframeViewType;
+  EngineMode _engineMode = EngineMode.nativeProxy;
 
   final List<Map<String, dynamic>> _gamePresets = [
     {'title': 'Hacker News', 'url': 'https://news.ycombinator.com', 'icon': Icons.newspaper_rounded},
@@ -35,6 +43,24 @@ class _RbiBrowserAppState extends State<RbiBrowserApp> {
     ProxyEngine.instance.initialize();
     _iframeViewType = 'uv_iframe_${DateTime.now().millisecondsSinceEpoch}';
     _registerIframe();
+  }
+
+  void _toggleEngine() {
+    setState(() {
+      _engineMode = _engineMode == EngineMode.cloudBrowser
+          ? EngineMode.nativeProxy
+          : EngineMode.cloudBrowser;
+    });
+
+    if (_engineMode == EngineMode.cloudBrowser) {
+      if (RbiClient.instance.state == RbiConnectionState.disconnected ||
+          RbiClient.instance.state == RbiConnectionState.error) {
+        RbiClient.instance.connect();
+      }
+      RbiClient.instance.navigate(_currentDestination);
+    } else {
+      _loadUrl(_currentDestination);
+    }
   }
 
   void _registerIframe() {
@@ -76,13 +102,21 @@ class _RbiBrowserAppState extends State<RbiBrowserApp> {
       _iframeViewType = 'uv_iframe_${DateTime.now().millisecondsSinceEpoch}';
     });
 
-    _registerIframe();
+    if (_engineMode == EngineMode.cloudBrowser) {
+      if (RbiClient.instance.state == RbiConnectionState.disconnected ||
+          RbiClient.instance.state == RbiConnectionState.error) {
+        RbiClient.instance.connect();
+      }
+      RbiClient.instance.navigate(target);
+    } else {
+      _registerIframe();
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: Listenable.merge([ProxyEngine.instance, AuthService.instance]),
+      listenable: Listenable.merge([ProxyEngine.instance, AuthService.instance, RbiClient.instance]),
       builder: (context, _) {
         final proxy = ProxyEngine.instance;
         final auth = AuthService.instance;
@@ -100,9 +134,9 @@ class _RbiBrowserAppState extends State<RbiBrowserApp> {
               // Telemetry & Security Strip
               _buildTelemetryStrip(proxy, auth),
 
-              // Native WebGL / Canvas / DOM Iframe Viewport
+              // Viewport (Dual Engine: Cloud Chromium or Native WebGL)
               Expanded(
-                child: _buildIframeViewport(),
+                child: _buildViewport(),
               ),
             ],
           ),
@@ -189,6 +223,45 @@ class _RbiBrowserAppState extends State<RbiBrowserApp> {
                   style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white),
                 ),
               ],
+            ),
+          ),
+          const SizedBox(width: 8),
+
+          // Dual Engine Switcher Button
+          InkWell(
+            onTap: _toggleEngine,
+            borderRadius: BorderRadius.circular(8),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: _engineMode == EngineMode.cloudBrowser
+                    ? const Color(0xFF312E81)
+                    : const Color(0xFF064E3B),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: _engineMode == EngineMode.cloudBrowser
+                      ? const Color(0xFF818CF8)
+                      : WebOSTheme.accent,
+                ),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    _engineMode == EngineMode.cloudBrowser
+                        ? Icons.cloud_done_rounded
+                        : Icons.bolt_rounded,
+                    size: 14,
+                    color: _engineMode == EngineMode.cloudBrowser
+                        ? const Color(0xFF818CF8)
+                        : WebOSTheme.accent,
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    _engineMode == EngineMode.cloudBrowser ? 'Cloud Chromium' : 'Native Proxy',
+                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white),
+                  ),
+                ],
+              ),
             ),
           ),
         ],
@@ -288,6 +361,101 @@ class _RbiBrowserAppState extends State<RbiBrowserApp> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildViewport() {
+    if (_engineMode == EngineMode.cloudBrowser) {
+      return _buildCloudChromiumViewport();
+    }
+    return _buildIframeViewport();
+  }
+
+  Widget _buildCloudChromiumViewport() {
+    final rbi = RbiClient.instance;
+
+    if (rbi.state == RbiConnectionState.error) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.error_outline_rounded, color: Colors.redAccent, size: 36),
+            const SizedBox(height: 12),
+            Text(
+              rbi.errorMessage ?? 'Failed to connect to Cloud Browser',
+              style: const TextStyle(color: Colors.white70, fontSize: 13),
+            ),
+            const SizedBox(height: 12),
+            ElevatedButton.icon(
+              onPressed: () {
+                rbi.connect();
+                rbi.navigate(_currentDestination);
+              },
+              icon: const Icon(Icons.refresh_rounded, size: 16),
+              label: const Text('Reconnect Cloud Sandbox'),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (rbi.latestFrameBytes == null) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(
+              width: 32,
+              height: 32,
+              child: CircularProgressIndicator(color: WebOSTheme.primary, strokeWidth: 2.5),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'Spawning Isolated Cloud Chromium...',
+              style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Bypasses bot-detection, DRM, and anti-iframe blocks',
+              style: TextStyle(color: WebOSTheme.primary.withValues(alpha: 0.8), fontSize: 11),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return Listener(
+          onPointerHover: (e) {
+            final scaleX = rbi.remoteWidth / constraints.maxWidth;
+            final scaleY = rbi.remoteHeight / constraints.maxHeight;
+            rbi.sendMouseMove(e.localPosition.dx * scaleX, e.localPosition.dy * scaleY);
+          },
+          onPointerDown: (e) {
+            final scaleX = rbi.remoteWidth / constraints.maxWidth;
+            final scaleY = rbi.remoteHeight / constraints.maxHeight;
+            rbi.sendMouseDown(e.localPosition.dx * scaleX, e.localPosition.dy * scaleY, button: 'left');
+          },
+          onPointerUp: (e) {
+            final scaleX = rbi.remoteWidth / constraints.maxWidth;
+            final scaleY = rbi.remoteHeight / constraints.maxHeight;
+            rbi.sendMouseUp(e.localPosition.dx * scaleX, e.localPosition.dy * scaleY, button: 'left');
+          },
+          onPointerSignal: (e) {
+            if (e is PointerScrollEvent) {
+              rbi.sendWheel(e.scrollDelta.dx, e.scrollDelta.dy);
+            }
+          },
+          child: Image.memory(
+            rbi.latestFrameBytes!,
+            gaplessPlayback: true,
+            fit: BoxFit.fill,
+            width: double.infinity,
+            height: double.infinity,
+          ),
+        );
+      },
     );
   }
 

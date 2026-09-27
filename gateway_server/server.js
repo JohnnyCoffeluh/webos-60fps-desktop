@@ -75,11 +75,34 @@ server.on('request', (req, res) => {
   }
 });
 
-// Handle WebSocket upgrades for Wisp and Bare
+// Initialize Cloud Browser (RBI) WebSocket Server
+const { WebSocketServer } = require('ws');
+let rbiWss = null;
+try {
+  const { handleRbiWebSocket } = require('./rbi_service');
+  rbiWss = new WebSocketServer({ noServer: true });
+  rbiWss.on('connection', handleRbiWebSocket);
+  console.log('[Server] RBI Cloud Browser WebSocket Server initialized on /rbi/');
+} catch (e) {
+  console.warn('[Server] Notice initializing RBI Cloud Browser:', e.message);
+}
+
+// Handle WebSocket upgrades for Wisp, Bare, and RBI
 server.on('upgrade', (req, socket, head) => {
   const url = req.url || '';
 
-  if (url.startsWith('/wisp')) {
+  if (url.startsWith('/rbi')) {
+    if (rbiWss) {
+      rbiWss.handleUpgrade(req, socket, head, (ws) => {
+        rbiWss.emit('connection', ws, req);
+      });
+    } else {
+      socket.destroy();
+    }
+  } else if (url.startsWith('/wisp')) {
+    if (!req.url.endsWith('/')) {
+      req.url = req.url + '/';
+    }
     // Route to Wisp multiplexing server
     wisp.server.routeRequest(req, socket, head);
   } else if (bareServer.shouldRoute(req)) {

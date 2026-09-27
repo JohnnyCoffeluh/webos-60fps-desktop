@@ -1587,13 +1587,18 @@ var EpoxyTransport = class {
     if (body instanceof Blob) body = await body.arrayBuffer();
     try {
       let headersObj = {};
-      for (let [key, value] of headers) {
-        if (headersObj[key]) {
-          console.warn(
-            `Duplicate header key "${key}" detected. Overwriting previous value.`
-          );
+      if (headers) {
+        const entries = (typeof headers[Symbol.iterator] === 'function')
+          ? headers
+          : Object.entries(headers);
+        for (let [key, value] of entries) {
+          if (headersObj[key]) {
+            console.warn(
+              `Duplicate header key "${key}" detected. Overwriting previous value.`
+            );
+          }
+          headersObj[key] = value;
         }
-        headersObj[key] = value;
       }
       let res = await this.client.fetch(remote.href, {
         method,
